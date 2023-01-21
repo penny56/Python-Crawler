@@ -5,7 +5,7 @@ YJ 20230116
 import pygame, time, random
 
 
-SCREEN_WIDTH = 720
+SCREEN_WIDTH = 820
 SCREEN_HEIGHT = 500
 BG_COLOR = pygame.Color(0,0,0)
 TEXT_COLOR = pygame.Color(255,0,0)
@@ -87,6 +87,10 @@ class MainGame():
             if MainGame.my_tank and MainGame.my_tank.live:
                 if not MainGame.my_tank.stop:
                     MainGame.my_tank.move()
+                    # 检测碰撞墙壁
+                    MainGame.my_tank.hitWall()
+                    # 检测碰撞敌方坦克
+                    MainGame.my_tank.myTank_hit_enemyTank()
             
             pygame.display.update()
 
@@ -94,13 +98,17 @@ class MainGame():
     def createWall(self):
         for i in range(6):
             # 初始化墙壁
-            wall = Wall(i*130, 220)
+            wall = Wall(i*150, 220)
             # 添加到墙壁列表
             MainGame.wallList.append(wall)
         
     # 创建我方坦克
     def createMyTank(self):
-        MainGame.my_tank = Tank(SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100)
+        MainGame.my_tank = MyTank(SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100)
+
+        # 创建music对象并播放
+        music = Music('img/start.wav')
+        music.play()
 
     # 初始化敌方坦克，并添加到列表
     def createEnemyTank(self):
@@ -128,6 +136,11 @@ class MainGame():
             if enemyTank.live:
                 enemyTank.displayTank()
                 enemyTank.randMove()
+                # 检测碰撞墙壁
+                enemyTank.hitWall()
+                # 检测碰撞我方坦克
+                if MainGame.my_tank and MainGame.my_tank.live:
+                    enemyTank.enemyTank_hit_myTank()
 
                 # 发射子弹
                 enemyBullet = enemyTank.shot()
@@ -149,6 +162,8 @@ class MainGame():
                 myBullet.move()
                 # 检测是否打中
                 myBullet.myBullet_hit_enemyTank()
+                # 检测是否打中墙壁
+                myBullet.hitWall()
             else:
                 MainGame.myBulletList.remove(myBullet)
 
@@ -161,14 +176,19 @@ class MainGame():
                 enemyBullet.move()
                 # 打中我方坦克
                 enemyBullet.enemyBullet_hit_myTank()
+                # 检测是否打中墙壁
+                enemyBullet.hitWall()
             else:
                 MainGame.enemyBulletList.remove(enemyBullet)
 
     # 遍历墙壁列表，循环显示墙壁
     def blitWall(self):
         for wall in MainGame.wallList:
-            # 调用墙壁的显示方法
-            wall.displayWall()
+            if wall.live:
+                # 调用墙壁的显示方法
+                wall.displayWall()
+            else:
+                MainGame.wallList.remove(wall)
 
     # 结束游戏
     def endGame(self):
@@ -209,6 +229,11 @@ class MainGame():
                         if len(MainGame.myBulletList) < 3:
                             myBullet = Bullet(MainGame.my_tank)
                             MainGame.myBulletList.append(myBullet)
+                            
+                            # 添加音效
+                            music = Music('img/hit.wav')
+                            music.play()
+
                 # 我方坦克死亡后，按ESC重生
                 elif not MainGame.my_tank:
                     if event.key == pygame.K_ESCAPE:
@@ -243,9 +268,16 @@ class Tank(BaseItem):
         self.stop = True
         # 死活
         self.live = True
+        # 为了撞墙停止，记录旧位置
+        self.oldLeft = self.rect.left
+        self.oldTop = self.rect.top
 
     # 移动
     def move(self):
+        # 移动后保留一下当前位置
+        self.oldLeft = self.rect.left
+        self.oldTop = self.rect.top
+
         # 判断移动方向
         if self.direction == 'U':
             if self.rect.top > 0: self.rect.top -= self.speed
@@ -260,6 +292,18 @@ class Tank(BaseItem):
     def shot(self):
         return Bullet(self)
 
+    def stay(self):
+        self.rect.left = self.oldLeft
+        self.rect.top = self.oldTop
+
+    # 检测是否与墙壁碰撞
+    def hitWall(self):
+        for wall in MainGame.wallList:
+            # 若碰撞，恢复原位置，使其保持不动
+            if pygame.sprite.collide_rect(self, wall):
+                self.stay()
+            
+
     # 展示
     def displayTank(self):
         # 获取展示的对象
@@ -269,8 +313,15 @@ class Tank(BaseItem):
 
 # 我方坦克，继承自Tank class
 class MyTank(Tank):
-    def __init__(self):
-        pass
+    def __init__(self, left, top):
+        super(MyTank, self).__init__(left, top)
+
+    # 检测我方坦克碰撞敌方坦克
+    def myTank_hit_enemyTank(self):
+        for enemyTank in MainGame.enemyTankList:
+            if pygame.sprite.collide_rect(self, enemyTank):
+                self.stay()
+
 
 # 敌方坦克
 class EnemyTank(Tank):
@@ -297,6 +348,10 @@ class EnemyTank(Tank):
         # 随机移动的步数变量
         self.step = 20
 
+    # 检测敌方坦克碰撞我方坦克
+    def enemyTank_hit_myTank(self):
+        if pygame.sprite.collide_rect(self, MainGame.my_tank):
+            self.stay()
 
     # 随机生成方向
     def randDirection(self):
@@ -374,6 +429,19 @@ class Bullet(BaseItem):
                 self.rect.left += self.speed
             else:
                 self.live = False
+
+    # 子弹是否碰到墙壁
+    def hitWall(self):
+        # 墙壁是一个列表
+        for wall in MainGame.wallList:
+            if pygame.sprite.collide_rect(self, wall):
+                # 消失子弹
+                self.live = False
+                # 墙壁的生命值减小
+                wall.hp -= 1
+                if wall.hp == 0:
+                    # 墙壁死了
+                    wall.live = False
 
     # 展示子弹
     def displayBullet(self):
@@ -453,12 +521,15 @@ class Explode():
         
 
 class Music():
-    def __init__(self):
-        pass
+    def __init__(self, filename):
+        self.filename = filename
+        # 初始化mixer
+        pygame.mixer.init()
+        pygame.mixer.music.load(self.filename)
 
     # 播放
     def play(self):
-        pass
+        pygame.mixer.music.play()
 
 
 
