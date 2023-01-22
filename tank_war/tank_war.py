@@ -1,19 +1,35 @@
 '''
 Bilibili > 尚学堂小助理
 YJ 20230116
+同时出现的敌方坦克数量
+mytank转方向时的bug == y
+按enemytank的随机速度选择icon
+子弹碰到子弹应该消失，而不是互相穿过
+enemytank的子弹碰到敌方tank时子弹小时，而不是穿过
 '''
 import pygame, time, random
 
 
 SCREEN_WIDTH = 820
 SCREEN_HEIGHT = 500
+GAME_FRAME_RATE = 0.02
 BG_COLOR = pygame.Color(0,0,0)
 TEXT_COLOR = pygame.Color(255,0,0)
 
+ENEMY_TANK_COUNT = 6
+ENEMY_TANK_HEIGHT = 10
+ENEMY_TANK_SPEED_MIN = 2
+ENEMY_TANK_SPEED_MAX = 6
+MY_TANK_SPEED = 5
+
+MY_BULLET_MAX = 3
+BULLET_SPEED = 8
+
+WALL_HEALTH = 3
+
 # 为了实现‘子弹打坦克’的效果，定义一个基类，继承精灵类Sprite
 class BaseItem(pygame.sprite.Sprite):
-    def __init__(self, color, width, height):
-        # Call the parent class (Sprite) constructor
+    def __init__(self):
         pygame.sprite.Sprite.__init__(self)
 
 class MainGame():
@@ -21,9 +37,8 @@ class MainGame():
     window = None
     my_tank = None
 
-    # 敌方坦克
+    # 敌方坦克列表
     enemyTankList = []
-    enemyTankCount = 5
 
     # 我方子弹
     myBulletList = []
@@ -46,18 +61,18 @@ class MainGame():
         pygame.display.init()    # 初始化
         MainGame.window = pygame.display.set_mode([SCREEN_WIDTH, SCREEN_HEIGHT]) # 设置窗口的大小与显示
 
-        # 初始化我方坦克
+        # 生成我方坦克
         self.createMyTank()
-        # 初始化敌方坦克，并添加到列表
+        # 生成敌方坦克，并添加到列表
         self.createEnemyTank()
-        # 初始化墙壁
+        # 生成墙壁
         self.createWall()
 
         pygame.display.set_caption('!TANK-WAR!')
 
         while True:
             # 控制移动速度
-            time.sleep(0.02)
+            time.sleep(GAME_FRAME_RATE)
 
             MainGame.window.fill(BG_COLOR)
             # 获取事件
@@ -104,7 +119,7 @@ class MainGame():
         
     # 创建我方坦克
     def createMyTank(self):
-        MainGame.my_tank = MyTank(SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100)
+        MainGame.my_tank = MyTank(SCREEN_WIDTH/2, SCREEN_HEIGHT-100)
 
         # 创建music对象并播放
         music = Music('img/start.wav')
@@ -112,11 +127,11 @@ class MainGame():
 
     # 初始化敌方坦克，并添加到列表
     def createEnemyTank(self):
-        top = 100
+        top = ENEMY_TANK_HEIGHT
         # 循环生成敌方坦克
-        for i in range(MainGame.enemyTankCount):
+        for i in range(ENEMY_TANK_COUNT):
             left = random.randint(100, SCREEN_WIDTH-100)
-            speed = random.randint(1, 4)
+            speed = random.randint(ENEMY_TANK_SPEED_MIN, ENEMY_TANK_SPEED_MAX)
             enemy = EnemyTank(left, top, speed)
             MainGame.enemyTankList.append(enemy)
 
@@ -210,7 +225,6 @@ class MainGame():
                 self.endGame()
             elif event.type == pygame.KEYDOWN:
                 # 按下方向键，只切换方向，不移动，否则按住的话只能移动一格，不能持续移动
-                # 同时打开移动开关
                 if MainGame.my_tank and MainGame.my_tank.live:
                     if event.key == pygame.K_UP:
                         MainGame.my_tank.direction = 'U'
@@ -225,25 +239,29 @@ class MainGame():
                         MainGame.my_tank.direction = 'R'
                         MainGame.my_tank.stop = False
                     elif event.key == pygame.K_SPACE:
-                        # 创建"我方坦克"的子弹，且同时屏幕上的子弹数量最多3个
-                        if len(MainGame.myBulletList) < 3:
+                        # 创建"我方坦克"的子弹，且同时屏幕上的子弹数量最多 MY_BULLET_MAX 个
+                        if len(MainGame.myBulletList) < MY_BULLET_MAX:
                             myBullet = Bullet(MainGame.my_tank)
                             MainGame.myBulletList.append(myBullet)
                             
                             # 添加音效
                             music = Music('img/hit.wav')
                             music.play()
-
-                # 我方坦克死亡后，按ESC重生
+                # 我方坦克死亡后，按R重生
                 elif not MainGame.my_tank:
-                    if event.key == pygame.K_ESCAPE:
+                    if event.key == pygame.K_r:
                         self.createMyTank()
-
+            # 松开方向键，关闭移动开关
             elif event.type == pygame.KEYUP:
-                # 松开方向键，关闭移动开关
-                if event.key == pygame.K_UP or event.key == pygame.K_DOWN or event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
+                # 在处理松开方向键时，要检查一下其它三个方向键是不是被按下的状态
+                keys = pygame.key.get_pressed()
+                if event.key == pygame.K_UP and not keys[pygame.K_DOWN] and not keys[pygame.K_LEFT] and not keys[pygame.K_RIGHT] or \
+                   event.key == pygame.K_DOWN and not keys[pygame.K_UP] and not keys[pygame.K_LEFT] and not keys[pygame.K_RIGHT] or \
+                   event.key == pygame.K_LEFT and not keys[pygame.K_UP] and not keys[pygame.K_DOWN] and not keys[pygame.K_RIGHT] or \
+                   event.key == pygame.K_RIGHT and not keys[pygame.K_UP] and not keys[pygame.K_DOWN] and not keys[pygame.K_LEFT]:
                     if MainGame.my_tank and MainGame.my_tank.live:
                         MainGame.my_tank.stop = True
+                        pygame.key.get_pressed()
 
 class Tank(BaseItem):
     # 位置 => left：距离左边；top：距离上边
@@ -263,7 +281,7 @@ class Tank(BaseItem):
         self.rect.left = left
         self.rect.top = top
         # 移动速度
-        self.speed = 5
+        self.speed = MY_TANK_SPEED
         # 坦克移动的开关
         self.stop = True
         # 死活
@@ -343,7 +361,6 @@ class EnemyTank(Tank):
         self.rect.left = left
         self.rect.top = top
         self.speed = speed
-        self.flag = True # ??? 就是stop
 
         # 随机移动的步数变量
         self.step = 20
@@ -402,7 +419,7 @@ class Bullet(BaseItem):
             self.rect.top = tank.rect.top + tank.rect.width/2 - self.rect.width/2
         
         # 子弹速度
-        self.speed = 6
+        self.speed = BULLET_SPEED
         # 子弹状态，是否撞墙
         self.live = True
 
@@ -486,7 +503,7 @@ class Wall():
         # 是否存活
         self.live = True
         # 设置生命值，如果被击中，生命值--
-        self.hp = 3
+        self.hp = WALL_HEALTH
 
     # 展示墙壁的方法
     def displayWall(self):
@@ -517,8 +534,7 @@ class Explode():
         else:
             # 修改活着的状态
             self.live = False
-            self.step = 0
-        
+            self.step = 0      
 
 class Music():
     def __init__(self, filename):
@@ -530,7 +546,6 @@ class Music():
     # 播放
     def play(self):
         pygame.mixer.music.play()
-
 
 
 if __name__ == '__main__':
